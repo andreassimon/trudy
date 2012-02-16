@@ -1,12 +1,16 @@
 require "./trudy"
 
+ENV['RABBITMQ_URL'] ||= "amqp://localhost"
+ENV['TRUDY_HOST']   ||= "192.168.43.187:4567"
+ENV['TRUDY_QUEUE']  ||= "trudy"
+
+
 task :run do
   Trudy.run!
 end
 
 def rabbitmq_url
   puts "Using RabbitMQ URL: #{ ENV['RABBITMQ_URL'] }"
-  ENV['RABBITMQ_URL'] ||= "amqp://localhost"
 end
 
 def client
