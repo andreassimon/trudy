@@ -2,6 +2,18 @@ require 'bunny'
 require 'haml'
 require 'sass'
 require 'sinatra/base'
+require 'term/ansicolor'
+
+include Term::ANSIColor
+
+ENV['TRUDY_HOST'] ||= "192.168.43.187:4567"
+ENV['TRUDY_QUEUE'] ||= "trudy"
+ENV['RABBITMQ_URL'] ||= "amqp://localhost"
+
+print "\n"
+print yellow, "TRUDY_HOST   = ", red, "#{ ENV['TRUDY_HOST'] }", reset, "\n"
+print yellow, "TRUDY_QUEUE  = ", red, "#{ ENV['TRUDY_QUEUE'] }", reset, "\n"
+print yellow, "RABBITMQ_URL = ", red, "#{ ENV['RABBITMQ_URL'] }", reset, "\n\n"
 
 # heroku addons:add rabbitmq
 # heroku config:add TRUDY_HOST=<app_name>.heroku.com
@@ -12,18 +24,15 @@ class Trudy < Sinatra::Base
   PING_SECONDS      = 1
 
   def trudy_host
-    puts "Using Trudy host: #{ ENV['TRUDY_HOST'] }"
-    ENV['TRUDY_HOST'] ||= "192.168.43.187:4567"
+    @trudy_host ||= ENV['TRUDY_HOST']
   end
 
   def trudy_queue
-    puts "Using Trudy queue: #{ ENV['TRUDY_QUEUE'] }"
-    ENV['TRUDY_QUEUE'] ||= "trudy"
+    @trudy_queue ||= ENV['TRUDY_QUEUE']
   end
 
   def rabbitmq_url
-    puts "Using RabbitMQ URL: #{ ENV['RABBITMQ_URL'] }"
-    ENV['RABBITMQ_URL'] ||= "amqp://localhost"
+    @rabbitmq_url ||= ENV['RABBITMQ_URL']
   end
 
   def client
@@ -59,9 +68,13 @@ class Trudy < Sinatra::Base
     [0x04, 0x00, 0x00, 0x17 + frequency, 0x7F, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00] + [0x01] * frequency + [0x00]
   end
 
+  EARS = {'cancelled' => 0x07, 'failure' => 0x0A, 'hanging' => 0x0D, 'success' => 0x00}
+
   def trudy_choreography status
-    ears = {'cancelled' => 0x07, 'failure' => 0x0A, 'hanging' => 0x0D, 'success' => 0x00}[status]
-    [0x00, 0x00, 0x00, 0x0A] + [0x00, 0x08, 0x00, ears, 0x00] + [0x00, 0x08, 0x01, ears, 0x00] + [0x00, 0x00, 0x00, 0x00]
+    [0x00, 0x00, 0x00, 0x0A] +
+        [0x00, 0x08, 0x00, EARS[status], 0x00] +
+        [0x00, 0x08, 0x01, EARS[status], 0x00] +
+    [0x00, 0x00, 0x00, 0x00]
   end
 
   def trudy_foot
@@ -70,15 +83,6 @@ class Trudy < Sinatra::Base
 
   def trudy_head
     [0x7F]
-  end
-
-  def trudy_message status
-    trudy_head + trudy_message_block(status) + trudy_foot
-  end
-
-  def trudy_message_block status
-    trudy_obfuscated_message = trudy_obfuscate_message "ID 0\nMU #{trudy_host}/#{status}.mp3\nCH #{trudy_host}/#{status}.nab"
-    [0x0A, 0x00, 0x00, trudy_obfuscated_message.length] + trudy_obfuscated_message
   end
 
   def trudy_obfuscate_message message
@@ -109,7 +113,7 @@ class Trudy < Sinatra::Base
   end
 
   post '/' do
-    exchange.publish params[:buildResult], :key => queue_name
+    exchange.publish params[:buildResult], :key => trudy_queue
     status 201
   end
 
@@ -124,18 +128,22 @@ class Trudy < Sinatra::Base
   end
 
   get '/vl/p4.jsp' do
-    #if params[:st] == 0
-    #else
-      puts "Message count: #{queue.message_count}"
-      if queue.message_count > 0
-        payload = queue.pop[:payload]
-        puts "Payload: #{payload}"
-        send_byte_array trudy_message payload
-      else
-        send_byte_array trudy_ping PING_SECONDS
-        #send_byte_array trudy_ambient AMBIENT_FREQUENCY
-      end
-    #end
+    if queue.message_count > 0
+      payload = queue.pop[:payload]
+      print "Payload: ", red, "#{payload}", reset, "\n"
+      send_byte_array trudy_message payload
+    else
+      send_byte_array trudy_ping PING_SECONDS
+    end
+  end
+
+  def trudy_message status
+    trudy_head + trudy_message_block(status) + trudy_foot
+  end
+
+  def trudy_message_block status
+    trudy_obfuscated_message = trudy_obfuscate_message "ID 0\nMU #{trudy_host}/#{status}.mp3\nCH #{trudy_host}/#{status}.nab"
+    [0x0A, 0x00, 0x00, trudy_obfuscated_message.length] + trudy_obfuscated_message
   end
 
   get '/index.css' do
