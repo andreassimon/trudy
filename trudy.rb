@@ -9,12 +9,26 @@ require 'sinatra/base'
 
 class Trudy < Sinatra::Base
   AMBIENT_FREQUENCY = 1
-  PING_SECONDS = 15
-  QUEUE_NAME = ENV['TRUDY_QUEUE']
+  PING_SECONDS      = 1
+
+  def trudy_host
+    puts "Using Trudy host: #{ ENV['TRUDY_HOST'] }"
+    ENV['TRUDY_HOST'] ||= "192.168.43.187:4567"
+  end
+
+  def trudy_queue
+    puts "Using Trudy queue: #{ ENV['TRUDY_QUEUE'] }"
+    ENV['TRUDY_QUEUE'] ||= "trudy"
+  end
+
+  def rabbitmq_url
+    puts "Using RabbitMQ URL: #{ ENV['RABBITMQ_URL'] }"
+    ENV['RABBITMQ_URL'] ||= "amqp://localhost"
+  end
 
   def client
     unless @client
-      @client = Bunny.new(ENV['RABBITMQ_URL'])
+      @client = Bunny.new(rabbitmq_url)
       @client.start
     end
     @client
@@ -25,10 +39,11 @@ class Trudy < Sinatra::Base
   end
 
   def queue
-    @queue ||= client.queue(QUEUE_NAME)
+    @queue ||= client.queue(trudy_queue)
   end
 
   def send_byte_array byte_array
+    puts "Packing byte array: #{ byte_array }"
     byte_array.pack('c*')
   end
 
@@ -62,7 +77,7 @@ class Trudy < Sinatra::Base
   end
 
   def trudy_message_block status
-    trudy_obfuscated_message = trudy_obfuscate_message "ID 0\nMU #{ENV['TRUDY_HOST']}/#{status}.mp3\nCH #{ENV['TRUDY_HOST']}/#{status}.nab"
+    trudy_obfuscated_message = trudy_obfuscate_message "ID 0\nMU #{trudy_host}/#{status}.mp3\nCH #{trudy_host}/#{status}.nab"
     [0x0A, 0x00, 0x00, trudy_obfuscated_message.length] + trudy_obfuscated_message
   end
 
@@ -94,7 +109,7 @@ class Trudy < Sinatra::Base
   end
 
   post '/' do
-    exchange.publish params[:buildResult], :key => QUEUE_NAME
+    exchange.publish params[:buildResult], :key => queue_name
     status 201
   end
 
@@ -103,19 +118,24 @@ class Trudy < Sinatra::Base
   end
 
   get '/locate.jsp' do
-    "ping #{ENV['TRUDY_HOST']}\nbroad #{ENV['TRUDY_HOST']}"
+    response = "ping #{ trudy_host }\nbroad #{trudy_host}"
+    puts "Response: #{ response }"
+    response
   end
 
   get '/vl/p4.jsp' do
-    if params[:st] == 0
-      send_byte_array trudy_ping PING_SECONDS
-    else
+    #if params[:st] == 0
+    #else
+      puts "Message count: #{queue.message_count}"
       if queue.message_count > 0
-        send_byte_array trudy_message queue.pop[:payload]
+        payload = queue.pop[:payload]
+        puts "Payload: #{payload}"
+        send_byte_array trudy_message payload
       else
-        send_byte_array trudy_ambient AMBIENT_FREQUENCY
+        send_byte_array trudy_ping PING_SECONDS
+        #send_byte_array trudy_ambient AMBIENT_FREQUENCY
       end
-    end
+    #end
   end
 
   get '/index.css' do
@@ -133,4 +153,5 @@ class Trudy < Sinatra::Base
   get '/' do
     haml :index
   end
+
 end
