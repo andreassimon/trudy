@@ -20,6 +20,13 @@ print yellow, "RABBITMQ_URL = ", red, "#{ ENV['RABBITMQ_URL'] }", reset, "\n\n"
 # heroku config:add TRUDY_QUEUE=<queue-name>
 
 class Trudy < Sinatra::Base
+  EARS = {
+      'success'   => 0x00,
+      'cancelled' => 0x07,
+      'failure'   => 0x0A,
+      'hanging'   => 0x0D
+  }
+
   AMBIENT_FREQUENCY = 1
   PING_SECONDS      = 1
 
@@ -67,8 +74,6 @@ class Trudy < Sinatra::Base
   def trudy_ambient_block frequency
     [0x04, 0x00, 0x00, 0x17 + frequency, 0x7F, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00] + [0x01] * frequency + [0x00]
   end
-
-  EARS = {'cancelled' => 0x07, 'failure' => 0x0A, 'hanging' => 0x0D, 'success' => 0x00}
 
   def trudy_choreography status
     [0x00, 0x00, 0x00, 0x0A] +
